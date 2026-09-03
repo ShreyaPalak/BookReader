@@ -64,7 +64,7 @@ public class BookImportManager {
         Book book;
         try {
             if (format.equals("EPUB")) {
-                EpubMetadataExtractor.EpubMetadata meta = extractEpub(localPath);
+                EpubMetadataExtractor.EpubMetadata meta = extractEpub(context, localPath);
                 book = new Book(meta.title, format, localPath);
                 book.author = meta.author;
                 book.totalUnits = meta.spineLength;
@@ -100,8 +100,8 @@ public class BookImportManager {
         return book;
     }
 
-    private static EpubMetadataExtractor.EpubMetadata extractEpub(String path) throws Exception {
-        return EpubMetadataExtractor.extract(path);
+    private static EpubMetadataExtractor.EpubMetadata extractEpub(Context context, String path) throws Exception {
+        return EpubMetadataExtractor.extract(context, path);
     }
 
     private static PdfMetadataExtractor.PdfMetadata extractPdf(String path) throws Exception {
