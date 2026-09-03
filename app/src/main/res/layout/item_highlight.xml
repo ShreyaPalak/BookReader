@@ -52,6 +52,17 @@
                 android:textColor="#999999"
                 tools:text="Jan 3, 2026" />
 
+            <Button
+                android:id="@+id/delete_highlight"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="Delete"
+                android:textSize="11sp" />
+
         </LinearLayout>
 
     </LinearLayout>
