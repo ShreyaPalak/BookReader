@@ -56,4 +56,12 @@
         android:background="#EEEEEE"
         tools:text="EPUB" />
 
+    <ImageButton
+        android:id="@+id/book_menu"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:contentDescription="Book options"
+        android:src="@android:drawable/ic_menu_more"
+        android:background="?attr/selectableItemBackgroundBorderless" />
+
 </LinearLayout>
