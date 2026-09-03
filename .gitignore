@@ -1,0 +1,15 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Flattened source/resource copies kept outside the Android project.
+/*.java
+/*.xml
+/build.gradle.app
+/build.gradle.root
