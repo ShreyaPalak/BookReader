@@ -26,8 +26,18 @@ public interface AnnotationDao {
     @Query("SELECT * FROM annotations WHERE bookId = :bookId AND spineIndex = :spineIndex ORDER BY createdDate ASC")
     List<Annotation> getAnnotationsForBookAndSpine(long bookId, int spineIndex);
 
+    @Query("SELECT * FROM annotations WHERE bookId = :bookId AND spineIndex = :spineIndex "
+            + "AND type = 'HIGHLIGHT' AND selectedText = :selectedText LIMIT 1")
+    Annotation findHighlightByText(long bookId, int spineIndex, String selectedText);
+
+    @Query("DELETE FROM annotations WHERE id = :annotationId")
+    void deleteById(long annotationId);
+
     @Query("SELECT * FROM annotations WHERE type = 'HIGHLIGHT' ORDER BY createdDate DESC")
     List<Annotation> getAllHighlights();
+
+    @Query("DELETE FROM annotations WHERE bookId = :bookId")
+    void deleteForBook(long bookId);
 
     // Backs the "all highlights in one place" screen — joins in the book title
     // since that screen shows highlights across every book, not just one.
