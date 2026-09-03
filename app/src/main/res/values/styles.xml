@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No customization yet — just inheriting AppCompat's day/night theme
+         so the app has a valid theme to launch with. Revisit once the
+         "adjust themes: white/yellow/black/dark" reading feature (V1) is
+         built — that's a separate in-reader theme system, not this one. -->
+    <style name="Theme.BookReader" parent="Theme.AppCompat.DayNight">
+    </style>
+</resources>

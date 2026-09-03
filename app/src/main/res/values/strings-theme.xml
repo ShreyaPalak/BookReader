@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="font_smaller">A-</string>
+    <string name="font_larger">A+</string>
+    <string name="theme_toggle">Theme</string>
+</resources>
