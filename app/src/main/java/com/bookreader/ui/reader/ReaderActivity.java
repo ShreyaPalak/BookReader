@@ -6,6 +6,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -31,22 +32,31 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import org.json.JSONObject;
 
 public class ReaderActivity extends AppCompatActivity {
 
     public static final String EXTRA_BOOK_ID = "book_id";
+    public static final String EXTRA_SPINE_INDEX = "spine_index";
+    public static final String EXTRA_HIGHLIGHT_TEXT = "highlight_text";
 
     private AppDatabase database;
     private WebView webView;
+    private TextView chapterProgressView;
     private ReadingSessionManager sessionManager;
     private ReaderPreferences preferences;
     private DictionaryRepository dictionaryRepository;
+    private AlertDialog selectionActionDialog;
+    private AlertDialog colorPickerDialog;
+    private String lastPromptedSelection;
 
     private long bookId;
     private String extractionRootPath;
     private List<String> spineFiles;
     private String opfBaseDir;
     private int currentSpineIndex = 0;
+    private int requestedSpineIndex = -1;
+    private String pendingHighlightText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +64,8 @@ public class ReaderActivity extends AppCompatActivity {
         setContentView(R.layout.activity_reader);
 
         bookId = getIntent().getLongExtra(EXTRA_BOOK_ID, -1);
+        requestedSpineIndex = getIntent().getIntExtra(EXTRA_SPINE_INDEX, -1);
+        pendingHighlightText = getIntent().getStringExtra(EXTRA_HIGHLIGHT_TEXT);
         if (bookId == -1) {
             Toast.makeText(this, "No book specified", Toast.LENGTH_SHORT).show();
             finish();
@@ -64,6 +76,9 @@ public class ReaderActivity extends AppCompatActivity {
         preferences = new ReaderPreferences(this);
         dictionaryRepository = new DictionaryRepository(database);
         webView = findViewById(R.id.reader_webview);
+        chapterProgressView = findViewById(R.id.chapter_progress);
+        webView.setOnScrollChangeListener((view, scrollX, scrollY, oldScrollX, oldScrollY) ->
+                updateChapterProgress());
 
         // JS enabled for word-lookup selection detection (only bridge method exposed below).
         webView.getSettings().setJavaScriptEnabled(true);
@@ -73,6 +88,8 @@ public class ReaderActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 injectSelectionListener();
+                scrollToPendingHighlight();
+                webView.postDelayed(ReaderActivity.this::updateChapterProgress, 100);
             }
         });
 
@@ -110,14 +127,16 @@ public class ReaderActivity extends AppCompatActivity {
             try {
                 File extractionRoot = new File(getFilesDir(), "extracted/" + bookId);
                 EpubExtractor.extractIfNeeded(book.filePath, extractionRoot);
-                EpubStructureParser.EpubStructure structure = EpubStructureParser.parse(extractionRoot);
+                EpubStructureParser.EpubStructure structure = EpubStructureParser.parse(this, book.filePath);
 
                 extractionRootPath = extractionRoot.getAbsolutePath();
                 spineFiles = structure.spineFiles;
                 opfBaseDir = structure.opfBaseDir;
 
                 ReadingPosition savedPosition = database.readingPositionDao().getPositionForBook(bookId);
-                int startIndex = (savedPosition != null && savedPosition.spineIndex != null)
+                int startIndex = requestedSpineIndex >= 0
+                        ? requestedSpineIndex
+                        : (savedPosition != null && savedPosition.spineIndex != null)
                         ? savedPosition.spineIndex : 0;
 
                 sessionManager = new ReadingSessionManager(database, bookId);
@@ -170,10 +189,27 @@ public class ReaderActivity extends AppCompatActivity {
 
             runOnUiThread(() -> {
                 webView.setBackgroundColor(android.graphics.Color.parseColor(preferences.getTheme().backgroundColor));
+                chapterProgressView.setText("Chapter progress: 0% complete · 100% remaining");
                 webView.loadDataWithBaseURL(baseUrl, styledHtml, "text/html", "UTF-8", null);
                 setTitle("Chapter " + (spineIndex + 1) + " of " + spineFiles.size());
             });
         });
+    }
+
+    private void updateChapterProgress() {
+        if (webView == null || chapterProgressView == null) {
+            return;
+        }
+
+        int contentHeight = (int) (webView.getContentHeight() * webView.getScale());
+        int viewportHeight = webView.getHeight();
+        int scrollableHeight = contentHeight - viewportHeight;
+        int completedPercent = scrollableHeight <= 0
+                ? 100
+                : Math.min(100, Math.max(0, Math.round(webView.getScrollY() * 100f / scrollableHeight)));
+        int remainingPercent = 100 - completedPercent;
+        chapterProgressView.setText("Chapter progress: " + completedPercent
+                + "% complete · " + remainingPercent + "% remaining");
     }
 
     @Override
@@ -189,20 +225,43 @@ public class ReaderActivity extends AppCompatActivity {
         }
     }
 
-    // Fires whenever the user's text selection changes. Debounced loosely by
-    // only acting on non-empty, short selections — long selections (a whole
-    // paragraph) are almost never a single-word lookup and would just error
-    // out against the dictionary API anyway.
+    // Wait until selection changes stop before showing the action dialog.
+    // WebView emits selectionchange repeatedly while the user is dragging.
     private void injectSelectionListener() {
         String js = "(function() {"
+                + "  if (window.bookReaderSelectionTimer) {"
+                + "    clearTimeout(window.bookReaderSelectionTimer);"
+                + "  }"
                 + "  document.addEventListener('selectionchange', function() {"
-                + "    var text = window.getSelection().toString().trim();"
-                + "    if (text.length > 0 && text.length < 500) {"
-                + "      AndroidLookup.onTextSelected(text);"
-                + "    }"
+                + "    clearTimeout(window.bookReaderSelectionTimer);"
+                + "    window.bookReaderSelectionTimer = setTimeout(function() {"
+                + "      var text = window.getSelection().toString().trim();"
+                + "      if (text.length > 0) {"
+                + "        AndroidLookup.onTextSelected(text);"
+                + "      }"
+                + "    }, 450);"
                 + "  });"
                 + "})();";
         webView.evaluateJavascript(js, null);
+    }
+
+    private void scrollToPendingHighlight() {
+        if (pendingHighlightText == null || pendingHighlightText.isEmpty()) {
+            return;
+        }
+        String quotedText = JSONObject.quote(pendingHighlightText);
+        String js = "(function() {"
+                + "var target = " + quotedText + ";"
+                + "var marks = document.querySelectorAll('mark');"
+                + "for (var i = 0; i < marks.length; i++) {"
+                + "  if (marks[i].textContent.trim() === target.trim()) {"
+                + "    marks[i].scrollIntoView({behavior:'smooth', block:'center'});"
+                + "    return;"
+                + "  }"
+                + "}"
+                + "})();";
+        webView.evaluateJavascript(js, null);
+        pendingHighlightText = null;
     }
 
     /**
@@ -213,37 +272,91 @@ public class ReaderActivity extends AppCompatActivity {
     private class WordLookupBridge {
         @JavascriptInterface
         public void onTextSelected(String text) {
-            runOnUiThread(() -> showSelectionActionDialog(text));
+            if (text == null || text.trim().isEmpty()) {
+                return;
+            }
+            String normalizedText = text.trim();
+            runOnUiThread(() -> {
+                if (selectionActionDialog != null && selectionActionDialog.isShowing()) {
+                    return;
+                }
+                if (colorPickerDialog != null && colorPickerDialog.isShowing()) {
+                    return;
+                }
+                if (normalizedText.equals(lastPromptedSelection)) {
+                    return;
+                }
+                AppExecutors.getInstance().diskIO().execute(() -> {
+                    Annotation existing = database.annotationDao().findHighlightByText(
+                            bookId, currentSpineIndex, normalizedText);
+                    runOnUiThread(() -> showSelectionActionDialog(normalizedText, existing != null));
+                });
+            });
         }
     }
 
-    private void showSelectionActionDialog(String selectedText) {
+    private void showSelectionActionDialog(String selectedText, boolean alreadyHighlighted) {
         boolean isSingleWord = !selectedText.contains(" ") && selectedText.length() < 40;
-        String[] options = isSingleWord
-                ? new String[]{"Highlight", "Look up definition"}
-                : new String[]{"Highlight"};
+        String[] options;
+        if (alreadyHighlighted) {
+            options = new String[]{"Remove highlight"};
+        } else {
+            options = isSingleWord
+                    ? new String[]{"Highlight", "Look up definition"}
+                    : new String[]{"Highlight"};
+        }
 
-        new AlertDialog.Builder(this)
+        selectionActionDialog = new AlertDialog.Builder(this)
                 .setTitle(truncateForTitle(selectedText))
                 .setItems(options, (dialog, which) -> {
                     String choice = options[which];
                     if (choice.equals("Highlight")) {
                         showColorPickerDialog(selectedText);
+                    } else if (choice.equals("Remove highlight")) {
+                        removeHighlight(selectedText);
                     } else if (choice.equals("Look up definition")) {
                         performLookup(selectedText);
                     }
                 })
                 .show();
+        selectionActionDialog.setOnDismissListener(dialog -> {
+            if (selectionActionDialog != null && !selectionActionDialog.isShowing()) {
+                selectionActionDialog = null;
+            }
+        });
+        lastPromptedSelection = selectedText;
+    }
+
+    private void removeHighlight(String selectedText) {
+        int spineIndexAtSelection = currentSpineIndex;
+        AppExecutors.getInstance().diskIO().execute(() -> {
+            Annotation existing = database.annotationDao().findHighlightByText(
+                    bookId, spineIndexAtSelection, selectedText);
+            if (existing == null) {
+                return;
+            }
+            database.annotationDao().deleteById(existing.id);
+            runOnUiThread(() -> {
+                lastPromptedSelection = null;
+                Toast.makeText(this, "Highlight removed", Toast.LENGTH_SHORT).show();
+                goToChapter(spineIndexAtSelection);
+            });
+        });
     }
 
     private void showColorPickerDialog(String selectedText) {
         String[] colorNames = {"Yellow", "Green", "Pink", "Blue"};
         String[] colorHex = {"#FFEB3B", "#A5D6A7", "#F48FB1", "#90CAF9"};
 
-        new AlertDialog.Builder(this)
+        colorPickerDialog = new AlertDialog.Builder(this)
                 .setTitle("Highlight color")
                 .setItems(colorNames, (dialog, which) -> saveHighlight(selectedText, colorHex[which]))
                 .show();
+        colorPickerDialog.setOnDismissListener(dialog -> {
+            if (colorPickerDialog != null && !colorPickerDialog.isShowing()) {
+                colorPickerDialog = null;
+            }
+        });
     }
 
     private void saveHighlight(String selectedText, String colorHex) {
@@ -260,6 +373,12 @@ public class ReaderActivity extends AppCompatActivity {
             database.annotationDao().insert(annotation);
 
             runOnUiThread(() -> {
+                if (colorPickerDialog != null && colorPickerDialog.isShowing()) {
+                    colorPickerDialog.dismiss();
+                }
+                webView.evaluateJavascript(
+                        "window.getSelection().removeAllRanges();", null);
+                lastPromptedSelection = null;
                 Toast.makeText(this, "Highlighted", Toast.LENGTH_SHORT).show();
                 // Reload the chapter so the new highlight renders immediately.
                 goToChapter(spineIndexAtSelection);
