@@ -25,4 +25,7 @@ public interface BookDao {
 
     @Query("SELECT * FROM books WHERE id = :bookId")
     Book getBookById(long bookId);
+
+    @Query("DELETE FROM books WHERE id = :bookId")
+    void deleteById(long bookId);
 }
