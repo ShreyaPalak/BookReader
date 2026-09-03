@@ -15,4 +15,7 @@ public interface ReadingPositionDao {
 
     @Query("SELECT * FROM reading_positions WHERE bookId = :bookId")
     ReadingPosition getPositionForBook(long bookId);
+
+    @Query("DELETE FROM reading_positions WHERE bookId = :bookId")
+    void deleteForBook(long bookId);
 }
