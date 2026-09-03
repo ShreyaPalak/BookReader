@@ -33,4 +33,7 @@ public interface SessionDao {
     @Query("SELECT DISTINCT date(startTime / 1000, 'unixepoch', 'localtime') AS day " +
            "FROM reading_sessions ORDER BY day DESC")
     List<String> getDistinctReadingDays();
+
+    @Query("DELETE FROM reading_sessions WHERE bookId = :bookId")
+    void deleteForBook(long bookId);
 }
