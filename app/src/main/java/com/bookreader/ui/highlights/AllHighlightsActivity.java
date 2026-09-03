@@ -38,7 +38,8 @@ public class AllHighlightsActivity extends AppCompatActivity {
 
         RecyclerView recyclerView = findViewById(R.id.highlights_recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new HighlightAdapter(new java.util.ArrayList<>(), this::jumpToHighlight);
+        adapter = new HighlightAdapter(new java.util.ArrayList<>(), this::jumpToHighlight,
+                this::confirmDeleteHighlight);
         recyclerView.setAdapter(adapter);
     }
 
@@ -60,12 +61,27 @@ public class AllHighlightsActivity extends AppCompatActivity {
     private void jumpToHighlight(HighlightWithBook highlight) {
         Intent intent = new Intent(this, ReaderActivity.class);
         intent.putExtra(ReaderActivity.EXTRA_BOOK_ID, highlight.bookId);
-        // Note: ReaderActivity currently opens to the book's saved reading
-        // position, not necessarily this highlight's chapter. Jumping to the
-        // exact spineIndex would need a small ReaderActivity change to accept
-        // an optional start-chapter override — worth doing as a follow-up if
-        // highlights and current reading position often diverge in practice.
+        if (highlight.spineIndex != null) {
+            intent.putExtra(ReaderActivity.EXTRA_SPINE_INDEX, highlight.spineIndex);
+        }
+        intent.putExtra(ReaderActivity.EXTRA_HIGHLIGHT_TEXT, highlight.selectedText);
         startActivity(intent);
+    }
+
+    private void confirmDeleteHighlight(HighlightWithBook highlight) {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Delete highlight?")
+                .setMessage("This removes the highlight from the book.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    AppExecutors.getInstance().diskIO().execute(() -> {
+                        database.annotationDao().deleteById(highlight.id);
+                        runOnUiThread(() ->
+                                Toast.makeText(this, "Highlight deleted", Toast.LENGTH_SHORT).show());
+                        loadHighlights();
+                    });
+                })
+                .show();
     }
 
     @Override
