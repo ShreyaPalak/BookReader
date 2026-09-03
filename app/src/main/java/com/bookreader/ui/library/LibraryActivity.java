@@ -25,6 +25,8 @@ import com.bookreader.stats.DateUtils;
 import com.bookreader.stats.ReadingStatsCalculator;
 
 import android.widget.TextView;
+import android.widget.EditText;
+import android.view.ViewGroup;
 
 import java.util.List;
 
@@ -55,7 +57,7 @@ public class LibraryActivity extends AppCompatActivity {
 
         RecyclerView recyclerView = findViewById(R.id.library_recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new BookAdapter(this::openBook);
+        adapter = new BookAdapter(this::openBook, this::showBookOptions);
         recyclerView.setAdapter(adapter);
 
         findViewById(R.id.fab_add_book).setOnClickListener(v ->
@@ -170,5 +172,70 @@ public class LibraryActivity extends AppCompatActivity {
             Toast.makeText(this, "PDF reading isn't built yet — EPUB only for now",
                     Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void showBookOptions(Book book) {
+            String[] options = {"Rename book", "Delete book"};
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(book.title)
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) {
+                            showRenameDialog(book);
+                        } else {
+                            confirmDeleteBook(book);
+                        }
+                    })
+                    .show();
+        }
+
+    private void showRenameDialog(Book book) {
+            EditText input = new EditText(this);
+            input.setSingleLine(true);
+            input.setText(book.title);
+            input.setSelectAllOnFocus(true);
+            int padding = (int) (24 * getResources().getDisplayMetrics().density);
+            input.setPadding(padding, 0, padding, 0);
+
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Rename book")
+                    .setView(input)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Save", (dialog, which) -> {
+                        String newTitle = input.getText().toString().trim();
+                        if (newTitle.isEmpty()) {
+                            Toast.makeText(this, "Book name cannot be empty", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        AppExecutors.getInstance().diskIO().execute(() -> {
+                            book.title = newTitle;
+                            database.bookDao().update(book);
+                            runOnUiThread(() -> {
+                                Toast.makeText(this, "Book renamed", Toast.LENGTH_SHORT).show();
+                                loadBooks();
+                            });
+                        });
+                    })
+                    .show();
+        }
+
+    private void confirmDeleteBook(Book book) {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Delete book?")
+                    .setMessage("This removes the book, its highlights, reading history, and stored file.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete", (dialog, which) ->
+                            AppExecutors.getInstance().diskIO().execute(() -> {
+                                database.annotationDao().deleteForBook(book.id);
+                                database.sessionDao().deleteForBook(book.id);
+                                database.readingPositionDao().deleteForBook(book.id);
+                                database.bookDao().deleteById(book.id);
+                                new java.io.File(book.filePath).delete();
+                                new java.io.File(getFilesDir(), "extracted/" + book.id).delete();
+                                runOnUiThread(() -> {
+                                    Toast.makeText(this, "Book deleted", Toast.LENGTH_SHORT).show();
+                                    loadBooks();
+                                });
+                            }))
+                    .show();
     }
 }
