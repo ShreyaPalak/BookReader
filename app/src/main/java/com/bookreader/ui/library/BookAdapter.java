@@ -21,11 +21,17 @@ public class BookAdapter extends RecyclerView.Adapter<BookAdapter.BookViewHolder
         void onBookClick(Book book);
     }
 
+    public interface OnBookMenuListener {
+        void onBookMenu(Book book);
+    }
+
     private List<Book> books = new ArrayList<>();
     private final OnBookClickListener clickListener;
+    private final OnBookMenuListener menuListener;
 
-    public BookAdapter(OnBookClickListener clickListener) {
+    public BookAdapter(OnBookClickListener clickListener, OnBookMenuListener menuListener) {
         this.clickListener = clickListener;
+        this.menuListener = menuListener;
     }
 
     /** Replaces the current list, diffing so RecyclerView animates only what changed. */
@@ -46,7 +52,7 @@ public class BookAdapter extends RecyclerView.Adapter<BookAdapter.BookViewHolder
     @Override
     public void onBindViewHolder(@NonNull BookViewHolder holder, int position) {
         Book book = books.get(position);
-        holder.bind(book, clickListener);
+        holder.bind(book, clickListener, menuListener);
     }
 
     @Override
@@ -59,6 +65,7 @@ public class BookAdapter extends RecyclerView.Adapter<BookAdapter.BookViewHolder
         private final TextView authorView;
         private final TextView formatBadge;
         private final TextView progressView;
+        private final View menuButton;
 
         BookViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -66,9 +73,10 @@ public class BookAdapter extends RecyclerView.Adapter<BookAdapter.BookViewHolder
             authorView = itemView.findViewById(R.id.book_author);
             formatBadge = itemView.findViewById(R.id.book_format_badge);
             progressView = itemView.findViewById(R.id.book_progress);
+            menuButton = itemView.findViewById(R.id.book_menu);
         }
 
-        void bind(Book book, OnBookClickListener listener) {
+        void bind(Book book, OnBookClickListener listener, OnBookMenuListener menuListener) {
             titleView.setText(book.title);
 
             // Author is optional (manual entry only, per V1 scope) — hide the row instead
@@ -88,6 +96,7 @@ public class BookAdapter extends RecyclerView.Adapter<BookAdapter.BookViewHolder
             progressView.setText(book.totalUnits + " " + unitLabel);
 
             itemView.setOnClickListener(v -> listener.onBookClick(book));
+            menuButton.setOnClickListener(v -> menuListener.onBookMenu(book));
         }
     }
 
